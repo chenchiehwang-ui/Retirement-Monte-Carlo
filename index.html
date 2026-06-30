@@ -311,9 +311,8 @@ bind('ltcamt','o_ltcamt',v=>v+' 萬');
 bind('ltcage','o_ltcage',v=>v);
 bind('lipen','o_lipen',v=>v.toFixed(1)+' 萬');
 bind('lipage','o_lipage',v=>v);
-bind('lrpen','o_lrpen',v=>v.toFixed(1)+' 萬');
+bind('lrsum','o_lrsum',v=>v+' 萬');
 bind('lrpage','o_lrpage',v=>v);
-bind('lrpend','o_lrpend',v=>v+' 歲');
 bind('pendisc','o_pendisc',v=>v+'%');
 
 // ── strategy segmented control ──
@@ -356,7 +355,7 @@ function simPath(p){
   const years=p.endAge-p.age;
   const path=[assets+buffer];
   let ltcStart = p.ltc ? p.ltcAge + Math.round((Math.random()*10-5)) : 9999;
-  let minIncome=Infinity, ruined=false, ruinYear=-1;
+  let minIncome=Infinity, ruined=false, ruinYear=-1, lrPaid=false;
 
   for(let y=0; y<years; y++){
     const total = assets + buffer;
@@ -379,12 +378,15 @@ function simPath(p){
       withdraw = Math.min(Math.max(base, floor), cap);
     }
 
-    // ── pension cash flow (reduces net draw on assets) ──
-    let pension = 0;
-    if(p.pen){
-      if(age >= p.liAge) pension += p.liPen;                    // 勞保：終身
-      if(age >= p.lrAge && age < p.lrEnd) pension += p.lrPen;   // 勞退：有期限
+    // ── 勞退一次請領：於請領年齡一次性併入投資資產 ──
+    if(p.pen && !lrPaid && age >= p.lrAge){
+      assets += p.lrSum;   // 加進資產池，此後跟著市場波動與提領
+      lrPaid = true;
     }
+
+    // ── 勞保年金：終身現金流，逐年抵減淨提領 ──
+    let pension = 0;
+    if(p.pen && age >= p.liAge) pension += p.liPen;
     // net amount that must actually come out of the portfolio
     let netDraw = Math.max(0, withdraw - pension);
 
@@ -433,9 +435,8 @@ function run(){
     pen:$('pen').checked,
     liPen:W(+$('lipen').value)*12*(1-(+$('pendisc').value)/100),  // 勞保年金 → 年額 × 實質折價
     liAge:+$('lipage').value,
-    lrPen:W(+$('lrpen').value)*12*(1-(+$('pendisc').value)/100),  // 勞退月退 → 年額 × 實質折價
-    lrAge:+$('lrpage').value,
-    lrEnd:+$('lrpend').value
+    lrSum:W(+$('lrsum').value)*(1-(+$('pendisc').value)/100),     // 勞退一次請領 → 總額 × 實質折價
+    lrAge:+$('lrpage').value
   };
   const N=2000, years=p.endAge-p.age;
   const finals=[], paths=[];
@@ -506,7 +507,7 @@ function render(R){
       <div class="stat"><div class="k">中位數終值</div><div class="v">${fmtM(medFinal)}</div></div>
       <div class="stat"><div class="k">提領策略</div><div class="v" style="font-size:15px;">${strategy==='fixed'?'固定':strategy==='pct'?'浮動 %':'護欄'}</div></div>
       <div class="stat"><div class="k">最壞 10% 最低年收入</div><div class="v">${fmtM(minInc10)}</div></div>
-      <div class="stat"><div class="k">${p.pen?'退休金 · 年挹注峰值':'有效提領率'}</div><div class="v">${p.pen?fmtM(p.liPen+p.lrPen):(100*(p.fixed+p.flex)/p.assets).toFixed(1)+'%'}</div></div>
+      <div class="stat"><div class="k">${p.pen?'勞保 · 年金（折價後）':'有效提領率'}</div><div class="v">${p.pen?fmtM(p.liPen):(100*(p.fixed+p.flex)/p.assets).toFixed(1)+'%'}</div></div>
     </div>
 
     <div class="chartwrap">
