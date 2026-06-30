@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>退休資產壓力測試 · Monte Carlo</title>
+<style>
+  :root{
+    --ink:#393C60;        /* 深靛藍 · 主文字 / 框線 */
+    --paper:#f5f0ea;      /* 暖米 · 背景 */
+    --paper-2:#ede3e3;    /* 淺玫瑰 · 次背景 */
+    --line:#cdbfc0;       /* 玫瑰灰淡化 · 分隔線 */
+    --rule:#393C60;
+    --buffer:#BF9FA6;     /* 玫瑰灰 · 緩衝層 */
+    --danger:#4E394F;     /* 深紫 · 破產 / 警示 */
+    --median:#393C60;     /* 深靛藍 · 中位數線 */
+    --band:#BF9FA6;       /* 玫瑰灰 · 百分位帶 */
+    --accent:#AC8467;     /* 暖棕 · 提領 / 強調 */
+    --muted:#8a7d83;      /* 灰紫 · 輔助文字 */
+    --good:#5a7d4f;       /* 沉穩綠 · 安全 */
+  }
+  *{box-sizing:border-box;}
+  html{-webkit-text-size-adjust:100%;}
+  body{
+    margin:0;background:var(--paper);color:var(--ink);
+    font-family:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,"Songti TC","Noto Serif TC",serif;
+    line-height:1.5;
+  }
+  .wrap{max-width:1180px;margin:0 auto;padding:32px 20px 80px;}
+
+  /* ── Header ── */
+  header{border-bottom:2.5px solid var(--rule);padding-bottom:18px;margin-bottom:8px;}
+  .eyebrow{
+    font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace;
+    font-size:11px;letter-spacing:.28em;text-transform:uppercase;color:var(--muted);
+    margin:0 0 10px;
+  }
+  h1{
+    font-size:clamp(28px,5vw,46px);line-height:1.02;margin:0;font-weight:600;
+    letter-spacing:-.01em;
+  }
+  h1 .em{font-style:italic;color:var(--accent);}
+  .sub{margin:14px 0 0;max-width:60ch;color:var(--muted);font-size:15px;}
+
+  /* ── Layout ── */
+  .grid{display:grid;grid-template-columns:340px 1fr;gap:0;margin-top:28px;
+    border:1.5px solid var(--rule);background:var(--paper);}
+  .panel{padding:22px 22px 26px;border-right:1.5px solid var(--rule);}
+  .stage{padding:22px;min-width:0;}
+  @media(max-width:860px){
+    .grid{grid-template-columns:1fr;}
+    .panel{border-right:none;border-bottom:1.5px solid var(--rule);}
+  }
+
+  /* ── Controls ── */
+  .group{margin-bottom:20px;}
+  .group:last-child{margin-bottom:0;}
+  .group > .label{
+    font-family:"SF Mono",ui-monospace,Menlo,monospace;
+    font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);
+    display:flex;align-items:center;gap:8px;margin:0 0 14px;
+  }
+  .group > .label::after{content:"";flex:1;height:1px;background:var(--line);}
+
+  .field{margin-bottom:15px;}
+  .field:last-child{margin-bottom:0;}
+  .field .row{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px;}
+  .field label{font-size:13.5px;color:var(--ink);}
+  .field .val{
+    font-family:"SF Mono",ui-monospace,Menlo,monospace;
+    font-size:13px;font-weight:600;color:var(--accent);
+  }
+  .field .hint{font-size:11px;color:var(--muted);margin-top:3px;line-height:1.35;}
+
+  input[type=range]{
+    -webkit-appearance:none;appearance:none;width:100%;height:2px;
+    background:var(--line);outline:none;margin:6px 0 2px;cursor:pointer;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;appearance:none;width:15px;height:15px;border-radius:50%;
+    background:var(--paper);border:2px solid var(--ink);cursor:pointer;transition:transform .1s;
+  }
+  input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.18);background:var(--accent);border-color:var(--accent);}
+  input[type=range]::-moz-range-thumb{
+    width:15px;height:15px;border-radius:50%;background:var(--paper);
+    border:2px solid var(--ink);cursor:pointer;
+  }
+
+  .toggle{display:flex;align-items:center;gap:9px;cursor:pointer;font-size:13.5px;padding:3px 0;user-select:none;}
+  .toggle input{position:absolute;opacity:0;pointer-events:none;}
+  .box{width:16px;height:16px;border:1.6px solid var(--ink);flex:0 0 auto;position:relative;background:var(--paper);}
+  .toggle input:checked + .box{background:var(--ink);}
+  .toggle input:checked + .box::after{
+    content:"";position:absolute;left:4.5px;top:1px;width:4px;height:8px;
+    border:solid var(--paper);border-width:0 2px 2px 0;transform:rotate(42deg);
+  }
+  .toggle input:focus-visible + .box{outline:2px solid var(--accent);outline-offset:2px;}
+
+  .seg{display:flex;border:1.4px solid var(--ink);}
+  .seg button{
+    flex:1;background:var(--paper);border:none;border-right:1.4px solid var(--ink);
+    padding:8px 4px;font-size:12px;cursor:pointer;color:var(--ink);
+    font-family:inherit;transition:background .12s;
+  }
+  .seg button:last-child{border-right:none;}
+  .seg button.on{background:var(--ink);color:var(--paper);}
+
+  .run{
+    width:100%;margin-top:6px;padding:13px;background:var(--accent);color:#fff;
+    border:none;font-family:inherit;font-size:15px;font-weight:600;letter-spacing:.02em;
+    cursor:pointer;transition:background .12s;
+  }
+  .run:hover{background:#946f56;}
+  .run:active{transform:translateY(1px);}
+
+  /* ── Results ── */
+  .verdict{
+    border:1.5px solid var(--rule);padding:18px 20px;margin-bottom:18px;
+    display:flex;align-items:baseline;gap:18px;flex-wrap:wrap;background:var(--paper-2);
+  }
+  .verdict .big{
+    font-size:clamp(38px,7vw,62px);line-height:.9;font-weight:700;letter-spacing:-.02em;
+    font-family:"SF Mono",ui-monospace,Menlo,monospace;
+  }
+  .verdict .big.safe{color:var(--good);}
+  .verdict .big.warn{color:var(--accent);}
+  .verdict .big.fail{color:var(--danger);}
+  .verdict .vlabel{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);
+    font-family:"SF Mono",ui-monospace,Menlo,monospace;margin-bottom:6px;}
+  .verdict .vtext{font-size:14px;max-width:46ch;color:var(--ink);}
+  .verdict .vtext b{color:var(--ink);}
+
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:0;border:1.5px solid var(--rule);margin-bottom:18px;}
+  .stat{padding:14px 16px;border-right:1.5px solid var(--line);}
+  .stat:last-child{border-right:none;}
+  .stat .k{font-family:"SF Mono",ui-monospace,Menlo,monospace;font-size:10px;letter-spacing:.12em;
+    text-transform:uppercase;color:var(--muted);margin-bottom:6px;}
+  .stat .v{font-size:21px;font-weight:600;font-family:"SF Mono",ui-monospace,Menlo,monospace;}
+  @media(max-width:560px){.stats{grid-template-columns:repeat(2,1fr);}
+    .stat:nth-child(2){border-right:none;}.stat:nth-child(1),.stat:nth-child(2){border-bottom:1.5px solid var(--line);}}
+
+  .chartwrap{border:1.5px solid var(--rule);padding:16px 12px 8px;background:var(--paper);}
+  .chart-title{font-family:"SF Mono",ui-monospace,Menlo,monospace;font-size:10.5px;
+    letter-spacing:.14em;text-transform:uppercase;color:var(--muted);padding:0 6px 8px;
+    display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;}
+  .legend span{display:flex;align-items:center;gap:5px;text-transform:none;letter-spacing:0;}
+  .swatch{width:11px;height:11px;display:inline-block;}
+  svg{display:block;width:100%;height:auto;}
+  .axis text{font-family:"SF Mono",ui-monospace,Menlo,monospace;font-size:9.5px;fill:var(--muted);}
+  .axis line{stroke:var(--line);stroke-width:.5;}
+
+  .empty{padding:60px 20px;text-align:center;color:var(--muted);font-style:italic;}
+
+  .note{font-size:11.5px;color:var(--muted);margin-top:18px;line-height:1.5;border-top:1px solid var(--line);padding-top:14px;}
+  .note b{color:var(--ink);font-style:normal;}
+  details{margin-top:10px;}
+  summary{cursor:pointer;font-size:12px;color:var(--accent);font-family:"SF Mono",ui-monospace,Menlo,monospace;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <p class="eyebrow">Retirement · Monte Carlo · 浮動提領壓力測試</p>
+    <h1>你的資產撐不撐得過<br><span class="em">最壞的那條路徑</span></h1>
+    <p class="sub">這不是算平均報酬會發生什麼，而是把上千條隨機的市場序列丟給你的資產，看其中有多少比例在你生命終點前歸零。重點不是中位數，是左尾。</p>
+  </header>
+
+  <div class="grid">
+    <!-- ───── CONTROL PANEL ───── -->
+    <div class="panel">
+      <div class="group">
+        <p class="label">起點</p>
+        <div class="field">
+          <div class="row"><label>起始資產</label><span class="val" id="o_assets">1400 萬</span></div>
+          <input type="range" id="assets" min="800" max="3000" step="20" value="1400">
+        </div>
+        <div class="field">
+          <div class="row"><label>退休年齡</label><span class="val" id="o_age">50</span></div>
+          <input type="range" id="age" min="40" max="65" step="1" value="50">
+        </div>
+        <div class="field">
+          <div class="row"><label>規劃終點年齡</label><span class="val" id="o_end">95</span></div>
+          <input type="range" id="endage" min="80" max="105" step="1" value="95">
+        </div>
+      </div>
+
+      <div class="group">
+        <p class="label">支出（年，今日購買力）</p>
+        <div class="field">
+          <div class="row"><label>不可壓縮支出</label><span class="val" id="o_fixed">30 萬</span></div>
+          <input type="range" id="fixed" min="15" max="80" step="1" value="30">
+          <p class="hint">房租、保費、基本生活——熊市也砍不掉的那層。</p>
+        </div>
+        <div class="field">
+          <div class="row"><label>彈性支出</label><span class="val" id="o_flex">17 萬</span></div>
+          <input type="range" id="flex" min="0" max="60" step="1" value="17">
+          <p class="hint">浮動提領時，市場差的年份會先壓縮這層。</p>
+        </div>
+      </div>
+
+      <div class="group">
+        <p class="label">提領策略</p>
+        <div class="field">
+          <div class="seg" id="strategy">
+            <button data-s="fixed" class="on">固定提領</button>
+            <button data-s="pct">浮動 %</button>
+            <button data-s="guard">護欄</button>
+          </div>
+          <p class="hint" id="strat_hint">固定金額照通膨調整，與當下資產無關（古典 4% 法則邏輯）。</p>
+        </div>
+        <div class="field" id="pctfield" style="display:none;">
+          <div class="row"><label>目標提領率</label><span class="val" id="o_wr">3.3%</span></div>
+          <input type="range" id="wr" min="2" max="6" step="0.1" value="3.3">
+        </div>
+      </div>
+
+      <div class="group">
+        <p class="label">市場假設（實質，扣通膨後）</p>
+        <div class="field">
+          <div class="row"><label>預期年化報酬</label><span class="val" id="o_ret">5.0%</span></div>
+          <input type="range" id="ret" min="2" max="8" step="0.1" value="5.0">
+        </div>
+        <div class="field">
+          <div class="row"><label>年化波動度</label><span class="val" id="o_vol">15%</span></div>
+          <input type="range" id="vol" min="8" max="25" step="0.5" value="15">
+        </div>
+        <div class="field">
+          <div class="row"><label>緩衝層（年生活費）</label><span class="val" id="o_buf">2 年</span></div>
+          <input type="range" id="buf" min="0" max="5" step="1" value="2">
+          <p class="hint">低波動資產（如 SGOV）。熊市初期靠它過活，不在低點賣股。</p>
+        </div>
+      </div>
+
+      <div class="group">
+        <p class="label">晚年衝擊（壓力情境）</p>
+        <label class="toggle"><input type="checkbox" id="ltc"><span class="box"></span>觸發長照增量支出</label>
+        <div class="field" id="ltcfield" style="display:none;margin-top:10px;">
+          <div class="row"><label>每年增量</label><span class="val" id="o_ltcamt">40 萬</span></div>
+          <input type="range" id="ltcamt" min="10" max="120" step="5" value="40">
+          <div class="row" style="margin-top:8px;"><label>起始年齡</label><span class="val" id="o_ltcage">80</span></div>
+          <input type="range" id="ltcage" min="65" max="95" step="1" value="80">
+          <p class="hint">保單覆蓋後的自費缺口。隨機在此年齡 ±5 年觸發。</p>
+        </div>
+      </div>
+
+      <button class="run" id="run">執行 2,000 次模擬</button>
+    </div>
+
+    <!-- ───── STAGE ───── -->
+    <div class="stage">
+      <div id="results">
+        <div class="empty">調整左側參數，按下執行。<br>每次都是 2,000 條獨立的隨機市場路徑。</div>
+      </div>
+    </div>
+  </div>
+
+  <p class="note">
+    <b>關於這個模型。</b> 報酬以對數常態隨機抽樣（幾何布朗運動），每年獨立——這會<i>低估</i>真實市場的均值回歸，也<i>低估</i>連續壞年份的群聚，屬於偏保守的假設。所有金額為實質購買力（已扣通膨），所以提領不需再逐年加通膨。緩衝層在資產為正時提供低波動的提款來源，避開報酬序列風險最毒的前幾年。這是決策輔助，不是保證——尾端機率對輸入假設敏感，把它當成「方向感」而非「精準預言」。
+    <details><summary>三種提領策略的差別 →</summary>
+    <span style="display:block;margin-top:8px;font-style:normal;">
+    <b>固定提領</b>：每年提固定實質金額，與資產無關。最高破產風險，但收入穩定。<br>
+    <b>浮動 %</b>：每年提「當下資產 × 提領率」。幾乎不可能歸零，但熊市收入大幅縮水。<br>
+    <b>護欄</b>：以浮動為基礎，但設下限（不低於不可壓縮支出）與上限（不超過基準的 1.2 倍），兼顧防破產與收入穩定。
+    </span></details>
+  </p>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const W = 万 => 万*10000;
+
+// ── live label bindings ──
+const bind = (id, out, fmt) => {
+  const el=$(id), o=$(out);
+  const upd=()=>o.textContent=fmt(+el.value);
+  el.addEventListener('input',upd); upd();
+};
+bind('assets','o_assets',v=>v+' 萬');
+bind('age','o_age',v=>v);
+bind('endage','o_end',v=>v);
+bind('fixed','o_fixed',v=>v+' 萬');
+bind('flex','o_flex',v=>v+' 萬');
+bind('wr','o_wr',v=>v.toFixed(1)+'%');
+bind('ret','o_ret',v=>v.toFixed(1)+'%');
+bind('vol','o_vol',v=>v+'%');
+bind('buf','o_buf',v=>v+' 年');
+bind('ltcamt','o_ltcamt',v=>v+' 萬');
+bind('ltcage','o_ltcage',v=>v);
+
+// ── strategy segmented control ──
+let strategy='fixed';
+const hints={
+  fixed:'固定金額照通膨調整，與當下資產無關（古典 4% 法則邏輯）。',
+  pct:'每年提「當下總資產 × 提領率」。資產縮水時提領自動跟著縮，幾乎不會歸零。',
+  guard:'浮動為基礎，但設下限（守住不可壓縮支出）與上限，兼顧防破產與收入穩定。'
+};
+document.querySelectorAll('#strategy button').forEach(b=>{
+  b.addEventListener('click',()=>{
+    document.querySelectorAll('#strategy button').forEach(x=>x.classList.remove('on'));
+    b.classList.add('on'); strategy=b.dataset.s;
+    $('strat_hint').textContent=hints[strategy];
+    $('pctfield').style.display=(strategy==='fixed')?'none':'block';
+  });
+});
+
+// ── conditional fields ──
+$('ltc').addEventListener('change',e=>{
+  $('ltcfield').style.display=e.target.checked?'block':'none';
+});
+
+// ── gaussian via Box-Muller ──
+function gauss(){
+  let u=0,v=0;
+  while(u===0)u=Math.random();
+  while(v===0)v=Math.random();
+  return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);
+}
+
+// ── one lifetime path ──
+function simPath(p){
+  let assets=p.assets;
+  let buffer=p.bufYears * (p.fixed+p.flex); // buffer pool in NTD
+  assets-=buffer;                            // buffer carved out of starting assets
+  const years=p.endAge-p.age;
+  const path=[assets+buffer];
+  let ltcStart = p.ltc ? p.ltcAge + Math.round((Math.random()*10-5)) : 9999;
+  let minIncome=Infinity, ruined=false, ruinYear=-1;
+
+  for(let y=0; y<years; y++){
+    const total = assets + buffer;
+    // determine withdrawal need / amount
+    let need = p.fixed + p.flex;
+    const age = p.age + y;
+    if(age >= ltcStart) need += p.ltcAmt;
+
+    let withdraw;
+    if(strategy==='fixed'){
+      withdraw = need;
+    } else if(strategy==='pct'){
+      let w = total * p.wr;
+      // can't pull flex below zero; fixed+ltc is the floor of *need*, but pct lets it ride
+      withdraw = w + (age>=ltcStart ? p.ltcAmt : 0); // ltc shock is on top of discretionary %
+    } else { // guard
+      let base = total * p.wr;
+      const floor = p.fixed + (age>=ltcStart ? p.ltcAmt : 0);
+      const cap = (p.fixed+p.flex)*1.2 + (age>=ltcStart ? p.ltcAmt : 0);
+      withdraw = Math.min(Math.max(base, floor), cap);
+    }
+
+    // draw from buffer first (preserve equities in down years)
+    let fromBuf = Math.min(buffer, withdraw);
+    buffer -= fromBuf;
+    let fromAssets = withdraw - fromBuf;
+    assets -= fromAssets;
+
+    if(assets < 0){ ruined=true; if(ruinYear<0) ruinYear=age; assets=0; }
+
+    // record realized income (what they actually got to spend)
+    const realIncome = withdraw - (assets<0?Math.abs(assets):0);
+    if(realIncome < minIncome) minIncome = realIncome;
+
+    // market move on remaining equity assets
+    const mu=p.ret - 0.5*p.vol*p.vol;
+    const r=Math.exp(mu + p.vol*gauss());
+    assets *= r;
+    // top buffer back up in good years if depleted (refill from assets when assets healthy)
+    const targetBuf = p.bufYears*(p.fixed+p.flex);
+    if(buffer < targetBuf && assets > targetBuf*2){
+      const refill=Math.min(targetBuf-buffer, assets*0.1);
+      buffer+=refill; assets-=refill;
+    }
+    path.push(Math.max(0,assets+buffer));
+  }
+  return {path, ruined, ruinYear, minIncome:Math.max(0,minIncome)};
+}
+
+// ── run N sims ──
+function run(){
+  const p={
+    assets:W(+$('assets').value),
+    age:+$('age').value,
+    endAge:+$('endage').value,
+    fixed:W(+$('fixed').value),
+    flex:W(+$('flex').value),
+    wr:(+$('wr').value)/100,
+    ret:(+$('ret').value)/100,
+    vol:(+$('vol').value)/100,
+    bufYears:+$('buf').value,
+    ltc:$('ltc').checked,
+    ltcAmt:W(+$('ltcamt').value),
+    ltcAge:+$('ltcage').value
+  };
+  const N=2000, years=p.endAge-p.age;
+  const finals=[], paths=[];
+  let ruinCount=0, ruinYears=[], minIncomes=[];
+  for(let i=0;i<N;i++){
+    const r=simPath(p);
+    paths.push(r.path);
+    finals.push(r.path[r.path.length-1]);
+    minIncomes.push(r.minIncome);
+    if(r.ruined){ruinCount++; ruinYears.push(r.ruinYear);}
+  }
+  const success=100*(1-ruinCount/N);
+
+  // percentile bands per year
+  const pct=(arr,q)=>{const s=[...arr].sort((a,b)=>a-b);const idx=(s.length-1)*q;const lo=Math.floor(idx),hi=Math.ceil(idx);return s[lo]+(s[hi]-s[lo])*(idx-lo);};
+  const band=(q)=>Array.from({length:years+1},(_,y)=>pct(paths.map(pp=>pp[y]),q));
+  const p10=band(.10),p50=band(.50),p90=band(.90),p25=band(.25),p75=band(.75);
+
+  const medFinal=pct(finals,.5);
+  const minInc10=pct(minIncomes,.10); // worst-decile lowest annual income
+
+  render({p,N,success,ruinCount,ruinYears,years,p10,p25,p50,p75,p90,medFinal,minInc10});
+}
+
+// ── render ──
+function render(R){
+  const {p,success,ruinCount,ruinYears,years,p10,p25,p50,p75,p90,medFinal,minInc10}=R;
+  const fmtM = ntd => (ntd/1e8>=1? (ntd/1e8).toFixed(2)+' 億' : Math.round(ntd/1e4)+' 萬');
+  let cls='safe', verdict='你的資產在絕大多數市場路徑下都撐到終點。';
+  if(success<99 && success>=90){cls='warn';verdict='大多數路徑安全，但左尾有真實的破產情境，值得補強。';}
+  if(success<90){cls='fail';verdict='破產機率偏高。在啟動前需要調整提領策略、緩衝層或本金厚度。';}
+
+  const medRuinAge = ruinYears.length? Math.round(ruinYears.sort((a,b)=>a-b)[Math.floor(ruinYears.length/2)]) : null;
+
+  // ── chart geometry ──
+  const Wd=720,Hd=320,mL=52,mR=14,mT=14,mB=26;
+  const iw=Wd-mL-mR, ih=Hd-mT-mB;
+  const maxY=Math.max(...p90)*1.05;
+  const x=i=>mL+iw*i/years;
+  const y=v=>mT+ih*(1-v/maxY);
+  const area=(hi,lo)=>{
+    let d='M '+x(0)+' '+y(hi[0]);
+    for(let i=1;i<=years;i++)d+=' L '+x(i)+' '+y(hi[i]);
+    for(let i=years;i>=0;i--)d+=' L '+x(i)+' '+y(lo[i]);
+    return d+' Z';
+  };
+  const line=arr=>{let d='M '+x(0)+' '+y(arr[0]);for(let i=1;i<=years;i++)d+=' L '+x(i)+' '+y(arr[i]);return d;};
+  // y ticks
+  let yt='';for(let k=0;k<=4;k++){const v=maxY*k/4;yt+=`<line x1="${mL}" x2="${Wd-mR}" y1="${y(v)}" y2="${y(v)}"/><text x="${mL-6}" y="${y(v)+3}" text-anchor="end">${fmtM(v)}</text>`;}
+  // x ticks (ages)
+  let xt='';const step=Math.ceil(years/6);for(let i=0;i<=years;i+=step){xt+=`<text x="${x(i)}" y="${Hd-8}" text-anchor="middle">${p.age+i}</text>`;}
+  // zero ruin line
+  const ruinLine=`<line x1="${mL}" x2="${Wd-mR}" y1="${y(0)}" y2="${y(0)}" stroke="var(--danger)" stroke-width="1" stroke-dasharray="3 3"/>`;
+
+  $('results').innerHTML=`
+    <div class="verdict">
+      <div>
+        <div class="vlabel">存活率 · Success Rate</div>
+        <div class="big ${cls}">${success.toFixed(1)}<span style="font-size:.4em;">%</span></div>
+      </div>
+      <div class="vtext">
+        <b>${ruinCount} / ${p.N || 2000}</b> 條路徑在 ${p.endAge} 歲前歸零。${verdict}
+        ${medRuinAge?`破產者的中位數歸零年齡約 <b>${medRuinAge} 歲</b>。`:''}
+      </div>
+    </div>
+
+    <div class="stats">
+      <div class="stat"><div class="k">中位數終值</div><div class="v">${fmtM(medFinal)}</div></div>
+      <div class="stat"><div class="k">提領策略</div><div class="v" style="font-size:15px;">${strategy==='fixed'?'固定':strategy==='pct'?'浮動 %':'護欄'}</div></div>
+      <div class="stat"><div class="k">最壞 10% 最低年收入</div><div class="v">${fmtM(minInc10)}</div></div>
+      <div class="stat"><div class="k">有效提領率</div><div class="v">${(100*(p.fixed+p.flex)/p.assets).toFixed(1)}%</div></div>
+    </div>
+
+    <div class="chartwrap">
+      <div class="chart-title">
+        <span>資產軌跡 · 各年百分位</span>
+        <span class="legend">
+          <span><i class="swatch" style="background:var(--band);opacity:.35;"></i>10–90%</span>
+          <span><i class="swatch" style="background:var(--band);opacity:.65;"></i>25–75%</span>
+          <span><i class="swatch" style="background:var(--median);"></i>中位數</span>
+        </span>
+      </div>
+      <svg viewBox="0 0 ${Wd} ${Hd}" role="img" aria-label="資產百分位軌跡圖">
+        <g class="axis">${yt}${xt}</g>
+        <path d="${area(p90,p10)}" fill="var(--band)" opacity="0.30"/>
+        <path d="${area(p75,p25)}" fill="var(--band)" opacity="0.45"/>
+        <path d="${line(p50)}" fill="none" stroke="var(--median)" stroke-width="2"/>
+        <path d="${line(p10)}" fill="none" stroke="var(--danger)" stroke-width="1" opacity=".6"/>
+        ${ruinLine}
+      </svg>
+    </div>
+
+    <p class="note" style="margin-top:14px;">
+      紅色細線是第 10 百分位（壞路徑），紅色虛線是歸零。看它有沒有在你終點前觸底——<b>那條線，而不是中間的中位數，才是你要盯的。</b>
+      ${strategy==='fixed' && success<98 ? '試試把策略換成護欄，通常能在不大幅犧牲收入下把存活率拉上來。':''}
+      ${minInc10 < p.fixed ? '<br><b style="color:var(--danger);">警告：</b>最壞 10% 情境下的最低年收入已低於你的不可壓縮支出——這代表壞年份你連基本盤都守不住，緩衝層或下限保護需要加厚。':''}
+    </p>
+  `;
+}
+
+$('run').addEventListener('click',run);
+run(); // initial
+</script>
+</body>
+</html>
